@@ -108,14 +108,18 @@ function formatArgsFor(req: DownloadRequest): string[] {
     throw new Error('Audio downloads are not yet implemented (M2)');
   }
   const q = req.format.quality;
+  // Prefer H.264 video + AAC audio for max compatibility with QuickTime/Preview.
+  // Without this, yt-dlp may pick AV1/VP9 + Opus which most macOS players can't render.
+  const sortPref = ['-S', 'vcodec:h264,acodec:m4a'];
   if (q === 'best') {
-    return ['-f', 'bv*+ba/b', '--merge-output-format', 'mp4'];
+    return ['-f', 'bv*+ba/b', '--merge-output-format', 'mp4', ...sortPref];
   }
   return [
     '-f',
     `bv*[height<=${q}]+ba/b[height<=${q}]`,
     '--merge-output-format',
     'mp4',
+    ...sortPref,
   ];
 }
 
