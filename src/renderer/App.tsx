@@ -1,16 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UrlInput } from './components/UrlInput';
-import { DownloadDialog } from './components/DownloadDialog';
 import { SystemCheckModal } from './components/SystemCheckModal';
 import { QueuePage } from './pages/QueuePage';
 import { useQueue } from './store/queue';
 import { api } from './lib/ipc';
-import type {
-  SystemCheckResult,
-  VideoMetadata,
-  DownloadFormatChoice,
-} from '@shared/types';
+import type { SystemCheckResult, DownloadFormatChoice } from '@shared/types';
 
 function expandHome(p: string): string {
   if (!p.startsWith('~')) return p;
@@ -18,18 +13,11 @@ function expandHome(p: string): string {
 }
 
 const DEFAULT_OUTPUT_DIR = '~/Downloads/youtube-crawler';
-
-interface PendingDownload {
-  id: string;
-  url: string;
-  metadata: VideoMetadata;
-}
+const DEFAULT_FORMAT: DownloadFormatChoice = { kind: 'video', quality: 'best' };
 
 export function App(): JSX.Element {
   const [systemReady, setSystemReady] = useState<SystemCheckResult | null>(null);
-  const [pending, setPending] = useState<PendingDownload | null>(null);
   const [busy, setBusy] = useState(false);
-  const pendingIdRef = useRef<string | null>(null);
 
   const add = useQueue((s) => s.add);
   const patch = useQueue((s) => s.patch);
@@ -58,48 +46,30 @@ export function App(): JSX.Element {
     const id = crypto.randomUUID();
     add({ id, url });
     patch(id, { stage: 'fetching_metadata' });
-    pendingIdRef.current = id;
     try {
       const meta = await api.fetchMetadata(url);
-      patch(id, { metadata: meta, stage: 'ready' });
-      setPending({ id, url, metadata: meta });
+      patch(id, { metadata: meta, format: DEFAULT_FORMAT, stage: 'downloading', percent: 0 });
+      api
+        .startDownload({
+          id,
+          url,
+          format: DEFAULT_FORMAT,
+          outputDir: expandHome(DEFAULT_OUTPUT_DIR),
+        })
+        .catch((err) => {
+          patch(id, {
+            stage: 'error',
+            errorMessage: err instanceof Error ? err.message : String(err),
+          });
+        });
     } catch (err) {
       patch(id, {
         stage: 'error',
         errorMessage: err instanceof Error ? err.message : String(err),
       });
-      pendingIdRef.current = null;
     } finally {
       setBusy(false);
     }
-  }
-
-  async function handleConfirm(format: DownloadFormatChoice): Promise<void> {
-    const current = pending;
-    pendingIdRef.current = null;
-    setPending(null);
-    if (!current) return;
-    patch(current.id, { format, stage: 'downloading', percent: 0 });
-    try {
-      await api.startDownload({
-        id: current.id,
-        url: current.url,
-        format,
-        outputDir: expandHome(DEFAULT_OUTPUT_DIR),
-      });
-    } catch (err) {
-      patch(current.id, {
-        stage: 'error',
-        errorMessage: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  function handleCancelDialog(): void {
-    const id = pendingIdRef.current;
-    pendingIdRef.current = null;
-    setPending(null);
-    if (id) patch(id, { stage: 'cancelled' });
   }
 
   const needsSetup =
@@ -116,13 +86,6 @@ export function App(): JSX.Element {
         <SystemCheckModal
           result={systemReady!}
           onRetry={() => api.systemCheck().then(setSystemReady)}
-        />
-      )}
-      {pending && (
-        <DownloadDialog
-          metadata={pending.metadata}
-          onConfirm={handleConfirm}
-          onCancel={handleCancelDialog}
         />
       )}
     </div>
