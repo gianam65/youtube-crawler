@@ -141,12 +141,13 @@ export async function startDownload(
     '--write-thumbnail',
     '--convert-thumbnails',
     'jpg',
-    // Subtitles: English + Vietnamese (and variants like en-US, en-orig, vi-VN), manual + auto.
-    // "all" causes YouTube rate-limiting (HTTP 429) on videos with many auto-translated langs.
+    // Subtitles: only exact "en" and "vi" codes (manual + auto-generated).
+    // Avoid globs like "en.*" — those also match en-de, en-fr (auto-translated FROM English),
+    // which trigger YouTube HTTP 429 rate-limiting on popular videos.
     '--write-subs',
     '--write-auto-subs',
     '--sub-langs',
-    'en.*,vi.*',
+    'en,vi,en-orig,vi-orig',
     '--convert-subs',
     'srt',
     '--print',
