@@ -141,11 +141,12 @@ export async function startDownload(
     '--write-thumbnail',
     '--convert-thumbnails',
     'jpg',
-    // Subtitles: all manual + auto-generated, exclude live chat (huge JSON), convert to .srt
+    // Subtitles: English + Vietnamese (and variants like en-US, en-orig, vi-VN), manual + auto.
+    // "all" causes YouTube rate-limiting (HTTP 429) on videos with many auto-translated langs.
     '--write-subs',
     '--write-auto-subs',
     '--sub-langs',
-    'all,-live_chat',
+    'en.*,vi.*',
     '--convert-subs',
     'srt',
     '--print',
