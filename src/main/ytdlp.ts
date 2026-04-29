@@ -147,7 +147,15 @@ export function fetchPlaylistEntries(url: string): Promise<PlaylistInfo> {
       }
       try {
         const raw = JSON.parse(stdout) as RawPlaylistInfo;
-        const entries: PlaylistEntry[] = (raw.entries ?? []).map((e) => ({
+        if (raw._type !== 'playlist' || !raw.entries || raw.entries.length === 0) {
+          reject(
+            new Error(
+              'NOT_A_PLAYLIST: yt-dlp returned a single video (playlist may be private/unlisted)',
+            ),
+          );
+          return;
+        }
+        const entries: PlaylistEntry[] = raw.entries.map((e) => ({
           id: e.id ?? '',
           title: e.title ?? '(untitled)',
           url: entryUrl(e),

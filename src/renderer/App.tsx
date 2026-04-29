@@ -85,12 +85,19 @@ export function App(): JSX.Element {
     setBusy(true);
     try {
       if (isUserPlaylist(url)) {
-        const info = await api.fetchPlaylist(url);
-        setPlaylist(info);
-      } else {
-        add({ id: crypto.randomUUID(), url });
-        runNext();
+        try {
+          const info = await api.fetchPlaylist(url);
+          setPlaylist(info);
+          return;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!message.startsWith('NOT_A_PLAYLIST')) throw err;
+          // Fall through to single-video flow below
+          console.log('Playlist inaccessible, falling back to single video:', message);
+        }
       }
+      add({ id: crypto.randomUUID(), url });
+      runNext();
     } catch (err) {
       const id = crypto.randomUUID();
       add({ id, url });
