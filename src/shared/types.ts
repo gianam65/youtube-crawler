@@ -64,15 +64,29 @@ export interface SystemCheckResult {
   ffmpeg: { installed: boolean; version: string | null };
 }
 
+export interface PlaylistEntry {
+  id: string;
+  title: string;
+  url: string;
+  duration: number | null;
+  thumbnail: string | null;
+}
+
+export interface PlaylistInfo {
+  id: string;
+  title: string;
+  uploader: string | null;
+  entries: PlaylistEntry[];
+}
+
 export interface RendererApi {
   systemCheck(): Promise<SystemCheckResult>;
   fetchMetadata(url: string): Promise<VideoMetadata>;
-  startDownload(req: DownloadRequest): Promise<void>;
-  cancelDownload(id: string): Promise<void>;
+  fetchPlaylist(url: string): Promise<PlaylistInfo>;
+  startDownload(req: DownloadRequest): Promise<string>;
+  cancelDownload(id: string): Promise<boolean>;
   homeDir(): string;
   onProgress(handler: (p: DownloadProgress) => void): () => void;
-  onDone(handler: (r: DownloadResult) => void): () => void;
-  onError(handler: (e: DownloadError) => void): () => void;
 }
 
 declare global {

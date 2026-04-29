@@ -5,6 +5,8 @@ import type {
   VideoFormat,
   DownloadRequest,
   DownloadProgress,
+  PlaylistInfo,
+  PlaylistEntry,
 } from '@shared/types';
 
 interface RawFormat {
@@ -92,6 +94,79 @@ export function fetchMetadata(url: string): Promise<VideoMetadata> {
   });
 }
 
+interface RawPlaylistEntry {
+  id?: string;
+  title?: string;
+  url?: string;
+  duration?: number | null;
+  thumbnails?: Array<{ url: string }>;
+}
+
+interface RawPlaylistInfo {
+  id?: string;
+  title?: string;
+  uploader?: string;
+  entries?: RawPlaylistEntry[];
+  _type?: string;
+}
+
+function entryUrl(e: RawPlaylistEntry): string {
+  if (e.url && /^https?:\/\//.test(e.url)) return e.url;
+  if (e.id) return `https://www.youtube.com/watch?v=${e.id}`;
+  return e.url ?? '';
+}
+
+export function fetchPlaylistEntries(url: string): Promise<PlaylistInfo> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--flat-playlist',
+      '--dump-single-json',
+      '--no-warnings',
+      '--yes-playlist',
+      url,
+    ];
+    console.log('[ytdlp] playlist fetch: yt-dlp', args.join(' '));
+    const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (c) => {
+      stdout += c.toString();
+    });
+    proc.stderr.on('data', (c) => {
+      stderr += c.toString();
+    });
+    proc.on('error', (err) => reject(err));
+    proc.on('close', (code) => {
+      console.log(
+        `[ytdlp] playlist exit code=${code}, stdout=${stdout.length}b, stderr=${stderr.length}b`,
+      );
+      if (stderr.trim()) console.log('[ytdlp] playlist stderr:\n' + stderr.trim());
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `yt-dlp exited ${code}`));
+        return;
+      }
+      try {
+        const raw = JSON.parse(stdout) as RawPlaylistInfo;
+        const entries: PlaylistEntry[] = (raw.entries ?? []).map((e) => ({
+          id: e.id ?? '',
+          title: e.title ?? '(untitled)',
+          url: entryUrl(e),
+          duration: e.duration ?? null,
+          thumbnail: e.thumbnails?.[0]?.url ?? null,
+        }));
+        resolve({
+          id: raw.id ?? '',
+          title: raw.title ?? '(playlist)',
+          uploader: raw.uploader ?? null,
+          entries,
+        });
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  });
+}
+
 const PROGRESS_RE =
   /^\[download\]\s+(\d+(?:\.\d+)?)%\s+of\s+~?\S+\s+at\s+(\S+)\s+ETA\s+(\S+)/;
 
@@ -128,9 +203,7 @@ const activeProcs = new Map<string, ChildProcess>();
 export async function startDownload(
   req: DownloadRequest,
   onProgress: (p: DownloadProgress) => void,
-  onDone: (filePath: string) => void,
-  onError: (err: Error, stderr: string) => void,
-): Promise<void> {
+): Promise<{ filePath: string }> {
   await mkdir(req.outputDir, { recursive: true });
 
   const args = [
@@ -147,68 +220,76 @@ export async function startDownload(
   console.log('[ytdlp] cwd:', req.outputDir);
   console.log('[ytdlp] yt-dlp', args.join(' '));
 
-  const proc = spawn('yt-dlp', args, {
-    cwd: req.outputDir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  activeProcs.set(req.id, proc);
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', args, {
+      cwd: req.outputDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    activeProcs.set(req.id, proc);
 
-  let stderr = '';
-  let lastEmit = 0;
-  let finalPath: string | null = null;
-  let stdoutBuf = '';
+    let stderr = '';
+    let lastEmit = 0;
+    let finalPath: string | null = null;
+    let stdoutBuf = '';
 
-  proc.stdout.on('data', (chunk: Buffer) => {
-    stdoutBuf += chunk.toString();
-    let idx: number;
-    while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
-      const line = stdoutBuf.slice(0, idx);
-      stdoutBuf = stdoutBuf.slice(idx + 1);
-      const filepathMarker = 'filepath:';
-      if (line.startsWith(filepathMarker)) {
-        finalPath = line.slice(filepathMarker.length).trim();
-        continue;
-      }
-      const prog = parseProgressLine(line);
-      if (prog) {
-        const now = Date.now();
-        if (now - lastEmit >= 200) {
-          lastEmit = now;
-          onProgress({
-            id: req.id,
-            percent: prog.percent,
-            speed: prog.speed,
-            eta: prog.eta,
-            stage: 'downloading',
-          });
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString();
+      let idx: number;
+      while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+        const line = stdoutBuf.slice(0, idx);
+        stdoutBuf = stdoutBuf.slice(idx + 1);
+        const filepathMarker = 'filepath:';
+        if (line.startsWith(filepathMarker)) {
+          finalPath = line.slice(filepathMarker.length).trim();
+          continue;
+        }
+        const prog = parseProgressLine(line);
+        if (prog) {
+          const now = Date.now();
+          if (now - lastEmit >= 200) {
+            lastEmit = now;
+            onProgress({
+              id: req.id,
+              percent: prog.percent,
+              speed: prog.speed,
+              eta: prog.eta,
+              stage: 'downloading',
+            });
+          }
         }
       }
-    }
-  });
+    });
 
-  proc.stderr.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
 
-  proc.on('error', (err) => {
-    activeProcs.delete(req.id);
-    onError(err, stderr);
-  });
+    proc.on('error', (err) => {
+      activeProcs.delete(req.id);
+      reject(err);
+    });
 
-  proc.on('close', (code, signal) => {
-    activeProcs.delete(req.id);
-    console.log(`[ytdlp] close code=${code} signal=${signal} finalPath=${finalPath}`);
-    if (stderr.trim()) console.log('[ytdlp] stderr:\n' + stderr.trim());
-    if (signal === 'SIGTERM') return;
-    if (code !== 0) {
-      onError(
-        new Error(stderr.trim().split('\n').slice(-1)[0] ?? `yt-dlp exited ${code}`),
-        stderr,
+    proc.on('close', (code, signal) => {
+      activeProcs.delete(req.id);
+      console.log(
+        `[ytdlp] close code=${code} signal=${signal} finalPath=${finalPath}`,
       );
-      return;
-    }
-    onProgress({ id: req.id, percent: 100, speed: null, eta: null, stage: 'done' });
-    onDone(finalPath ?? req.outputDir);
+      if (stderr.trim()) console.log('[ytdlp] stderr:\n' + stderr.trim());
+      if (signal === 'SIGTERM') {
+        reject(new Error('cancelled'));
+        return;
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            stderr.trim().split('\n').slice(-1)[0] ?? `yt-dlp exited ${code}`,
+          ),
+        );
+        return;
+      }
+      onProgress({ id: req.id, percent: 100, speed: null, eta: null, stage: 'done' });
+      resolve({ filePath: finalPath ?? req.outputDir });
+    });
   });
 }
 
