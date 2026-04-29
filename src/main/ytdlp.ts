@@ -45,7 +45,9 @@ function mapFormat(f: RawFormat): VideoFormat {
 
 export function fetchMetadata(url: string): Promise<VideoMetadata> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('yt-dlp', ['--dump-json', '--no-warnings', url], {
+    const args = ['--dump-json', '--no-warnings', '--no-playlist', url];
+    console.log('[ytdlp] metadata fetch: yt-dlp', args.join(' '));
+    const proc = spawn('yt-dlp', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -56,8 +58,13 @@ export function fetchMetadata(url: string): Promise<VideoMetadata> {
     proc.stderr.on('data', (c) => {
       stderr += c.toString();
     });
-    proc.on('error', (err) => reject(err));
+    proc.on('error', (err) => {
+      console.error('[ytdlp] metadata spawn error:', err.message);
+      reject(err);
+    });
     proc.on('close', (code) => {
+      console.log(`[ytdlp] metadata exit code=${code}, stdout=${stdout.length}b, stderr=${stderr.length}b`);
+      if (stderr.trim()) console.log('[ytdlp] metadata stderr:\n' + stderr.trim());
       if (code !== 0) {
         reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
         return;
@@ -127,6 +134,7 @@ export async function startDownload(
     '-o',
     '%(title)s.%(ext)s',
     '--newline',
+    '--no-playlist',
     '--print',
     'after_move:filepath:%(filepath)s',
     req.url,
