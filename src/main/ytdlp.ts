@@ -125,31 +125,63 @@ function formatArgsFor(req: DownloadRequest): string[] {
 
 const activeProcs = new Map<string, ChildProcess>();
 
-export async function startDownload(
-  req: DownloadRequest,
-  onProgress: (p: DownloadProgress) => void,
-): Promise<{ filePath: string }> {
-  await mkdir(req.outputDir, { recursive: true });
-
+// Best-effort subtitle download. Runs after the main video download and never
+// throws — YouTube frequently rate-limits subtitle endpoints (HTTP 429), and
+// we'd rather have a video without subs than a failed download.
+async function downloadSubs(req: DownloadRequest): Promise<void> {
   const args = [
-    ...formatArgsFor(req),
-    '-o',
-    '%(title)s.%(ext)s',
-    '--newline',
+    '--skip-download',
     '--no-playlist',
-    // Thumbnail: best quality, convert to .jpg for universal compatibility
-    '--write-thumbnail',
-    '--convert-thumbnails',
-    'jpg',
-    // Subtitles: only exact "en" and "vi" codes (manual + auto-generated).
-    // Avoid globs like "en.*" — those also match en-de, en-fr (auto-translated FROM English),
-    // which trigger YouTube HTTP 429 rate-limiting on popular videos.
+    '--ignore-errors',
     '--write-subs',
     '--write-auto-subs',
     '--sub-langs',
     'en,vi,en-orig,vi-orig',
     '--convert-subs',
     'srt',
+    '-o',
+    '%(title)s.%(ext)s',
+    req.url,
+  ];
+  console.log('[ytdlp] subs fetch: yt-dlp', args.join(' '));
+  await new Promise<void>((resolve) => {
+    const proc = spawn('yt-dlp', args, {
+      cwd: req.outputDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    proc.stderr.on('data', (c: Buffer) => {
+      stderr += c.toString();
+    });
+    proc.on('error', (err) => {
+      console.log('[ytdlp] subs spawn error (ignored):', err.message);
+      resolve();
+    });
+    proc.on('close', (code) => {
+      console.log(`[ytdlp] subs exit code=${code}`);
+      if (stderr.trim()) console.log('[ytdlp] subs stderr:\n' + stderr.trim());
+      resolve();
+    });
+  });
+}
+
+export async function startDownload(
+  req: DownloadRequest,
+  onProgress: (p: DownloadProgress) => void,
+): Promise<{ filePath: string }> {
+  await mkdir(req.outputDir, { recursive: true });
+
+  // Video + thumbnail in primary call (must succeed). Subs are fetched in a
+  // separate post-step so YouTube subtitle rate-limits never abort the video.
+  const args = [
+    ...formatArgsFor(req),
+    '-o',
+    '%(title)s.%(ext)s',
+    '--newline',
+    '--no-playlist',
+    '--write-thumbnail',
+    '--convert-thumbnails',
+    'jpg',
     '--print',
     'after_move:filepath:%(filepath)s',
     req.url,
@@ -226,6 +258,8 @@ export async function startDownload(
         return;
       }
       onProgress({ id: req.id, percent: 100, speed: null, eta: null, stage: 'done' });
+      // Fire-and-forget subs download — never blocks success and never fails.
+      void downloadSubs(req);
       resolve({ filePath: finalPath ?? req.outputDir });
     });
   });
