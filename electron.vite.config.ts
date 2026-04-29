@@ -20,7 +20,7 @@ export default defineConfig({
   renderer: {
     plugins: [react()],
     build: { outDir: 'out/renderer' },
-    root: '.',
+    root: resolve(__dirname, 'src/renderer'),
     resolve: {
       alias: {
         '@renderer': resolve(__dirname, 'src/renderer'),
