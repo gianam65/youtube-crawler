@@ -64,25 +64,9 @@ export interface SystemCheckResult {
   ffmpeg: { installed: boolean; version: string | null };
 }
 
-export interface PlaylistEntry {
-  id: string;
-  title: string;
-  url: string;
-  duration: number | null;
-  thumbnail: string | null;
-}
-
-export interface PlaylistInfo {
-  id: string;
-  title: string;
-  uploader: string | null;
-  entries: PlaylistEntry[];
-}
-
 export interface RendererApi {
   systemCheck(): Promise<SystemCheckResult>;
   fetchMetadata(url: string): Promise<VideoMetadata>;
-  fetchPlaylist(url: string): Promise<PlaylistInfo>;
   startDownload(req: DownloadRequest): Promise<string>;
   cancelDownload(id: string): Promise<boolean>;
   homeDir(): string;

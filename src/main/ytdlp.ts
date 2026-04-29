@@ -5,8 +5,6 @@ import type {
   VideoFormat,
   DownloadRequest,
   DownloadProgress,
-  PlaylistInfo,
-  PlaylistEntry,
 } from '@shared/types';
 
 interface RawFormat {
@@ -94,87 +92,6 @@ export function fetchMetadata(url: string): Promise<VideoMetadata> {
   });
 }
 
-interface RawPlaylistEntry {
-  id?: string;
-  title?: string;
-  url?: string;
-  duration?: number | null;
-  thumbnails?: Array<{ url: string }>;
-}
-
-interface RawPlaylistInfo {
-  id?: string;
-  title?: string;
-  uploader?: string;
-  entries?: RawPlaylistEntry[];
-  _type?: string;
-}
-
-function entryUrl(e: RawPlaylistEntry): string {
-  if (e.url && /^https?:\/\//.test(e.url)) return e.url;
-  if (e.id) return `https://www.youtube.com/watch?v=${e.id}`;
-  return e.url ?? '';
-}
-
-export function fetchPlaylistEntries(url: string): Promise<PlaylistInfo> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '--flat-playlist',
-      '--dump-single-json',
-      '--no-warnings',
-      '--yes-playlist',
-      url,
-    ];
-    console.log('[ytdlp] playlist fetch: yt-dlp', args.join(' '));
-    const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', (c) => {
-      stdout += c.toString();
-    });
-    proc.stderr.on('data', (c) => {
-      stderr += c.toString();
-    });
-    proc.on('error', (err) => reject(err));
-    proc.on('close', (code) => {
-      console.log(
-        `[ytdlp] playlist exit code=${code}, stdout=${stdout.length}b, stderr=${stderr.length}b`,
-      );
-      if (stderr.trim()) console.log('[ytdlp] playlist stderr:\n' + stderr.trim());
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `yt-dlp exited ${code}`));
-        return;
-      }
-      try {
-        const raw = JSON.parse(stdout) as RawPlaylistInfo;
-        if (raw._type !== 'playlist' || !raw.entries || raw.entries.length === 0) {
-          reject(
-            new Error(
-              'NOT_A_PLAYLIST: yt-dlp returned a single video (playlist may be private/unlisted)',
-            ),
-          );
-          return;
-        }
-        const entries: PlaylistEntry[] = raw.entries.map((e) => ({
-          id: e.id ?? '',
-          title: e.title ?? '(untitled)',
-          url: entryUrl(e),
-          duration: e.duration ?? null,
-          thumbnail: e.thumbnails?.[0]?.url ?? null,
-        }));
-        resolve({
-          id: raw.id ?? '',
-          title: raw.title ?? '(playlist)',
-          uploader: raw.uploader ?? null,
-          entries,
-        });
-      } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  });
-}
-
 const PROGRESS_RE =
   /^\[download\]\s+(\d+(?:\.\d+)?)%\s+of\s+~?\S+\s+at\s+(\S+)\s+ETA\s+(\S+)/;
 
@@ -220,6 +137,17 @@ export async function startDownload(
     '%(title)s.%(ext)s',
     '--newline',
     '--no-playlist',
+    // Thumbnail: best quality, convert to .jpg for universal compatibility
+    '--write-thumbnail',
+    '--convert-thumbnails',
+    'jpg',
+    // Subtitles: all manual + auto-generated, exclude live chat (huge JSON), convert to .srt
+    '--write-subs',
+    '--write-auto-subs',
+    '--sub-langs',
+    'all,-live_chat',
+    '--convert-subs',
+    'srt',
     '--print',
     'after_move:filepath:%(filepath)s',
     req.url,

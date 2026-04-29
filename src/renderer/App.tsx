@@ -2,17 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UrlInput } from './components/UrlInput';
 import { SystemCheckModal } from './components/SystemCheckModal';
-import { PlaylistPicker } from './components/PlaylistPicker';
 import { QueuePage } from './pages/QueuePage';
 import { useQueue } from './store/queue';
 import { api } from './lib/ipc';
-import { isUserPlaylist } from './lib/url';
-import type {
-  SystemCheckResult,
-  DownloadFormatChoice,
-  PlaylistInfo,
-  PlaylistEntry,
-} from '@shared/types';
+import type { SystemCheckResult, DownloadFormatChoice } from '@shared/types';
 
 function expandHome(p: string): string {
   if (!p.startsWith('~')) return p;
@@ -25,7 +18,6 @@ const DEFAULT_FORMAT: DownloadFormatChoice = { kind: 'video', quality: 'best' };
 export function App(): JSX.Element {
   const [systemReady, setSystemReady] = useState<SystemCheckResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [playlist, setPlaylist] = useState<PlaylistInfo | null>(null);
   const runningRef = useRef(false);
 
   const add = useQueue((s) => s.add);
@@ -40,7 +32,7 @@ export function App(): JSX.Element {
     return off;
   }, [patch]);
 
-  // Sequential runner: at most one fetch+download in flight at a time.
+  // Sequential runner: one fetch+download in flight at a time.
   async function runNext(): Promise<void> {
     if (runningRef.current) return;
     runningRef.current = true;
@@ -75,46 +67,16 @@ export function App(): JSX.Element {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       patch(id, {
-        stage: message === 'cancelled' ? 'cancelled' : 'error',
-        errorMessage: message === 'cancelled' ? null : message,
+        stage: message.includes('cancelled') ? 'cancelled' : 'error',
+        errorMessage: message.includes('cancelled') ? null : message,
       });
     }
   }
 
-  async function handleAddUrl(url: string): Promise<void> {
+  function handleAddUrl(url: string): void {
     setBusy(true);
-    try {
-      if (isUserPlaylist(url)) {
-        try {
-          const info = await api.fetchPlaylist(url);
-          setPlaylist(info);
-          return;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          if (!message.includes('NOT_A_PLAYLIST')) throw err;
-          // Fall through to single-video flow below
-          console.log('Playlist inaccessible, falling back to single video:', message);
-        }
-      }
-      add({ id: crypto.randomUUID(), url });
-      runNext();
-    } catch (err) {
-      const id = crypto.randomUUID();
-      add({ id, url });
-      patch(id, {
-        stage: 'error',
-        errorMessage: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handlePlaylistConfirm(selected: PlaylistEntry[]): void {
-    setPlaylist(null);
-    for (const entry of selected) {
-      add({ id: crypto.randomUUID(), url: entry.url });
-    }
+    add({ id: crypto.randomUUID(), url });
+    setBusy(false);
     runNext();
   }
 
@@ -132,13 +94,6 @@ export function App(): JSX.Element {
         <SystemCheckModal
           result={systemReady!}
           onRetry={() => api.systemCheck().then(setSystemReady)}
-        />
-      )}
-      {playlist && (
-        <PlaylistPicker
-          playlist={playlist}
-          onConfirm={handlePlaylistConfirm}
-          onCancel={() => setPlaylist(null)}
         />
       )}
     </div>

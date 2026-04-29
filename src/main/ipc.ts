@@ -1,19 +1,12 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { systemCheck } from './system-check.js';
-import {
-  fetchMetadata,
-  fetchPlaylistEntries,
-  startDownload,
-  cancelDownload,
-} from './ytdlp.js';
+import { fetchMetadata, startDownload, cancelDownload } from './ytdlp.js';
 import type { DownloadRequest } from '@shared/types';
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('system:check', () => systemCheck());
 
   ipcMain.handle('metadata:fetch', (_e, url: string) => fetchMetadata(url));
-
-  ipcMain.handle('playlist:fetch', (_e, url: string) => fetchPlaylistEntries(url));
 
   ipcMain.handle('download:start', async (_e, req: DownloadRequest) => {
     const result = await startDownload(req, (progress) =>

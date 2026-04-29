@@ -5,7 +5,6 @@ import type { RendererApi, DownloadProgress } from '@shared/types';
 const api: RendererApi = {
   systemCheck: () => ipcRenderer.invoke('system:check'),
   fetchMetadata: (url) => ipcRenderer.invoke('metadata:fetch', url),
-  fetchPlaylist: (url) => ipcRenderer.invoke('playlist:fetch', url),
   startDownload: (req) => ipcRenderer.invoke('download:start', req),
   cancelDownload: (id) => ipcRenderer.invoke('download:cancel', id),
   homeDir: () => homedir(),
