@@ -127,11 +127,13 @@ export async function startDownload(
     '-o',
     '%(title)s.%(ext)s',
     '--newline',
-    '--no-warnings',
     '--print',
     'after_move:filepath:%(filepath)s',
     req.url,
   ];
+
+  console.log('[ytdlp] cwd:', req.outputDir);
+  console.log('[ytdlp] yt-dlp', args.join(' '));
 
   const proc = spawn('yt-dlp', args, {
     cwd: req.outputDir,
@@ -183,6 +185,8 @@ export async function startDownload(
 
   proc.on('close', (code, signal) => {
     activeProcs.delete(req.id);
+    console.log(`[ytdlp] close code=${code} signal=${signal} finalPath=${finalPath}`);
+    if (stderr.trim()) console.log('[ytdlp] stderr:\n' + stderr.trim());
     if (signal === 'SIGTERM') return;
     if (code !== 0) {
       onError(
