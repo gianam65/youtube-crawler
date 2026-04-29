@@ -91,7 +91,7 @@ export function App(): JSX.Element {
           return;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          if (!message.startsWith('NOT_A_PLAYLIST')) throw err;
+          if (!message.includes('NOT_A_PLAYLIST')) throw err;
           // Fall through to single-video flow below
           console.log('Playlist inaccessible, falling back to single video:', message);
         }
