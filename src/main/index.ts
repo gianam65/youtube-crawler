@@ -3,6 +3,17 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { registerIpc } from './ipc.js';
 
+// Electron on macOS often inherits a stripped PATH that omits Homebrew bins
+// (especially when launched via Finder/launchctl). Prepend both Apple Silicon
+// and Intel Homebrew paths so spawn() can find yt-dlp and ffmpeg.
+process.env['PATH'] = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  process.env['PATH'] ?? '',
+]
+  .filter(Boolean)
+  .join(':');
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
